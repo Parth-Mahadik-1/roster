@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DataStraw Smart Roster</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, Arial, sans-serif; color: #172033; background: #f5f7fb; }
+      body { margin: 0; }
+      main { max-width: 1280px; margin: 0 auto; padding: 36px 24px 72px; }
+      h1 { margin: 0; font-size: 28px; } .subtle { color: #667085; margin: 8px 0 28px; }
+      .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+      .card, section { background: #fff; border: 1px solid #e5eaf2; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(15, 23, 42, .03); }
+      .number { display: block; margin-top: 8px; font-size: 26px; font-weight: 700; } .label { color: #667085; font-size: 13px; }
+      section { margin-top: 20px; } h2 { margin: 0 0 16px; font-size: 18px; }
+      .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; } label { display: grid; gap: 6px; font-size: 13px; color: #475467; }
+      input, select, button { border: 1px solid #d0d5dd; border-radius: 7px; padding: 9px 11px; font: inherit; background: #fff; }
+      button { border: 0; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; } button.secondary { background: #344054; }
+      .status { margin: 16px 0 0; padding: 10px 12px; border-radius: 7px; background: #eff8ff; color: #175cd3; } .status.error { background: #fff1f3; color: #c01048; }
+      .table-wrap { overflow: auto; max-height: 500px; margin-top: 16px; } table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { padding: 10px; border-bottom: 1px solid #eaecf0; text-align: left; white-space: nowrap; } th { color: #475467; background: #f9fafb; }
+      .empty { color: #667085; padding: 12px 0; } ul { margin: 10px 0 0; padding-left: 20px; }
+      @media (max-width: 720px) { .cards { grid-template-columns: repeat(2, 1fr); } main { padding: 24px 16px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Smart Roster Management</h1>
+      <p class="subtle">Live Supabase roster with coverage validation and backup reassignment.</p>
+      <div class="cards" id="cards"></div>
+      <section>
+        <h2>Supabase brands</h2>
+        <div id="brandCatalogue" class="empty">Loading Brand table…</div>
+      </section>
+      <section>
+        <h2>Supabase employees</h2>
+        <div id="employeeCatalogue" class="empty">Loading Employee and pods tables…</div>
+      </section>
+      <section>
+        <h2>Monthly roster</h2>
+        <div class="controls">
+          <label>Month <input id="month" type="month"></label>
+          <button onclick="generateRoster()">Generate roster</button>
+          <label>Brand <select id="brand" onchange="renderRows()"><option value="">All brands</option></select></label>
+          <label>Pod <select id="pod" onchange="renderRows()"><option value="">All pods</option></select></label>
+          <label>Employee <select id="rosterEmployee" onchange="renderRows()"><option value="">All employees</option></select></label>
+          <label>Process <select id="process" onchange="renderRows()"><option value="">All processes</option></select></label>
+          <label>Shift <select id="shift" onchange="renderRows()"><option value="">All shifts</option></select></label>
+          <label>Date <select id="rosterDate" onchange="renderRows()"><option value="">All dates</option></select></label>
+          <label>Status <select id="status" onchange="renderRows()"><option value="">All statuses</option></select></label>
+          <button class="secondary" onclick="clearFilters()">Clear filters</button>
+        </div>
+        <div id="generationStatus" class="empty">Choose a month and generate a validated roster.</div>
+        <div class="table-wrap"><table id="rosterTable"></table></div>
+      </section>
+      <section>
+        <h2>Sudden absence simulation</h2>
+        <div class="controls">
+          <label>Employee <select id="absenceEmployee"></select></label>
+          <label>Date <input id="absenceDate" type="date"></label>
+          <button class="secondary" onclick="simulateAbsence()">Simulate absence</button>
+          <button class="secondary" onclick="restoreAbsence()">Restore employee</button>
+        </div>
+        <div id="absenceResult" class="empty">Generate a roster before simulating an absence.</div>
+      </section>
+      <section>
+        <h2>Weekly holiday schedule</h2>
+        <div id="weeklyOffs" class="empty">Generate a roster to view staggered weekly holidays.</div>
+      </section>
+    </main>
+    <script>
+      let latestRows = []; let latestWeeklyOffs = [];
+      const $ = (id) => document.getElementById(id);
+      function setStatus(message, error = false) { const target = $("generationStatus"); target.textContent = message; target.className = error ? "status error" : "status"; }
+      async function initialise() {
+        const [summary, catalog, employeeCatalog, period] = await Promise.all([
+          fetch("/api/summary").then(response => response.json()),
+          fetch("/api/catalog/brands").then(response => response.json()),
+          fetch("/api/catalog/employees").then(response => response.json()),
+          fetch("/api/roster-period").then(response => response.json())
+        ]);
+        $("cards").innerHTML = [["Employees", summary.employees], ["Brands", summary.brands], ["Processes", summary.processes ?? "—"], ["Pods", summary.pods]].map(([label, value]) => `<div class="card"><span class="label">${label}</span><span class="number">${value}</span></div>`).join("");
+        $("brandCatalogue").innerHTML = catalog.brands.length
+          ? `<table><thead><tr><th>Brand ID</th><th>Brand name</th><th>Status</th></tr></thead><tbody>${catalog.brands.map(brand => `<tr><td>${brand.id}</td><td>${brand.name}</td><td>${brand.status || ""}</td></tr>`).join("")}</tbody></table>`
+          : "No records found in the Supabase Brand table.";
+        $("employeeCatalogue").innerHTML = employeeCatalog.employees.length
+          ? `<div class="table-wrap"><table><thead><tr><th>Employee ID</th><th>Employee name</th><th>Designation</th><th>Pod</th><th>Role</th><th>Status</th></tr></thead><tbody>${employeeCatalog.employees.map(employee => `<tr><td>${employee.id}</td><td>${employee.name}</td><td>${employee.designation}</td><td>${employee.pod}</td><td>${employee.pod_role}</td><td>${employee.status}</td></tr>`).join("")}</tbody></table></div>`
+          : "No records found in the Supabase Employee table.";
+        const defaultMonth = period.start || new Date().toISOString().slice(0, 10);
+        $("month").value = defaultMonth.slice(0, 7);
+      }
+      function populateFilters() {
+        const values = (key) => [...new Set(latestRows.map(row => row[key]))].sort();
+        const filterLabels = {brand: "All brands", pod: "All pods", rosterEmployee: "All employees", process: "All processes", shift: "All shifts", rosterDate: "All dates", status: "All statuses"};
+        const filterValues = {brand: values("brand"), pod: values("pod"), rosterEmployee: values("employee_id"), process: values("process"), shift: values("shift"), rosterDate: values("date"), status: values("status")};
+        Object.entries(filterLabels).forEach(([key, label]) => {
+          const select = $(key); const current = select.value;
+          select.innerHTML = `<option value="">${label}</option>` + filterValues[key].map(value => {
+            const text = key === "rosterEmployee" ? `${latestRows.find(row => row.employee_id === value).employee} (${value})` : value;
+            return `<option value="${value}">${text}</option>`;
+          }).join("");
+          select.value = current;
+        });
+        $("absenceEmployee").innerHTML = [...new Map(latestRows.map(row => [row.employee_id, row.employee])).entries()].map(([id, name]) => `<option value="${id}">${name} (${id})</option>`).join("");
+      }
+      function renderRows() {
+        const rows = latestRows.filter(row =>
+          (!$('brand').value || row.brand === $('brand').value) &&
+          (!$('pod').value || row.pod === $('pod').value) &&
+          (!$('rosterEmployee').value || row.employee_id === $('rosterEmployee').value) &&
+          (!$('process').value || row.process === $('process').value) &&
+          (!$('shift').value || row.shift === $('shift').value) &&
+          (!$('rosterDate').value || row.date === $('rosterDate').value) &&
+          (!$('status').value || row.status === $('status').value)
+        );
+        $('rosterTable').innerHTML = `<caption class="empty">Showing ${rows.length} of ${latestRows.length} assignments</caption><thead><tr><th>Date</th><th>Employee ID</th><th>Employee</th><th>Designation</th><th>Pod</th><th>Role</th><th>Brand</th><th>Process</th><th>Shift</th><th>Status</th></tr></thead><tbody>${rows.map(row => `<tr><td>${row.date}</td><td>${row.employee_id}</td><td>${row.employee}</td><td>${row.designation || ''}</td><td>${row.pod}</td><td>${row.pod_role || 'Employee'}</td><td>${row.brand}</td><td>${row.process}</td><td>${row.shift}</td><td>${row.status}</td></tr>`).join('')}</tbody>`;
+      }
+      function clearFilters() { ["brand", "pod", "rosterEmployee", "process", "shift", "rosterDate", "status"].forEach(id => $(id).value = ""); renderRows(); }
+      function renderWeeklyOffs() {
+        $('weeklyOffs').innerHTML = latestWeeklyOffs.length
+          ? `<div class="table-wrap"><table><thead><tr><th>Employee ID</th><th>Employee</th><th>Weekly holiday</th><th>Role</th></tr></thead><tbody>${latestWeeklyOffs.map(row => `<tr><td>${row.employee_id}</td><td>${row.employee}</td><td>${row.day}</td><td>${row.pod_leader ? 'Pod Lead' : 'Employee'}</td></tr>`).join('')}</tbody></table></div>`
+          : 'No weekly holiday schedule is available.';
+      }
+      async function generateRoster() {
+        const [year, month] = $('month').value.split('-').map(Number); if (!year) return;
+        setStatus('Generating roster…');
+        const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({year, month})});
+        const result = await response.json();
+        if (!response.ok) { setStatus(Array.isArray(result.detail) ? result.detail.join(' ') : result.detail, true); return; }
+        latestRows = result.assignments || []; latestWeeklyOffs = result.weekly_offs || []; populateFilters(); renderRows(); renderWeeklyOffs();
+        $('absenceDate').value = latestRows[0]?.date || `${$('month').value}-01`;
+        $('absenceEmployee').value = latestRows[0]?.employee_id || '';
+        setStatus(result.status === 'feasible' ? `Validated ${latestRows.length} assignments with zero detected overlaps.` : result.diagnostics.join(' '), result.status !== 'feasible');
+      }
+      async function simulateAbsence() {
+        if (!latestRows.length) return;
+        const [year, month] = $('month').value.split('-').map(Number);
+        const response = await fetch('/api/absence', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({year, month, employee_id: $('absenceEmployee').value, absence_date: $('absenceDate').value})});
+        const result = await response.json();
+        if (!response.ok) { $('absenceResult').className = 'status error'; $('absenceResult').textContent = result.detail || 'Could not save the absence.'; return; }
+        const affected = result.affected_assignments.length ? result.affected_assignments.map(row => `${row.brand} / ${row.process}`).join(', ') : 'No assignment was affected on that date';
+        const alternatives = result.alternative_assignments.length ? result.alternative_assignments.map(row => `${row.employee} covers ${row.brand} / ${row.process}`).join('; ') : 'No valid replacement';
+        $('absenceResult').className = result.status === 'feasible' ? 'status' : 'status error';
+        const otherIssues = result.other_active_issues?.length ? `<br><strong>Other active gaps on this date:</strong><br>${result.other_active_issues.join('<br>')}` : '';
+        $('absenceResult').innerHTML = `<strong>Saved in Supabase.</strong><br><strong>Affected:</strong> ${affected}<br><strong>Revised coverage:</strong> ${alternatives}<br>${result.coverage_gaps.join('<br>') || result.explanation}${otherIssues}`;
+        await generateRoster();
+      }
+      async function restoreAbsence() {
+        const [year, month] = $('month').value.split('-').map(Number);
+        const response = await fetch('/api/absence/restore', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({year, month, employee_id: $('absenceEmployee').value, absence_date: $('absenceDate').value})});
+        const result = await response.json();
+        $('absenceResult').className = response.ok ? 'status' : 'status error';
+        $('absenceResult').textContent = response.ok ? `Restored in Supabase. ${result.explanation}` : (result.detail || 'Could not restore the absence.');
+        if (response.ok) await generateRoster();
+      }
+      initialise();
+    </script>
+  </body>
+</html>

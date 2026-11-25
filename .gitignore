@@ -1,0 +1,43 @@
+# Secrets and local environment overrides (keep every .env.example).
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node / Vite
+# Obsolete generated cache left by the former directory name; source is in front/.
+frontend/
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vercel
+.vercel/
+
+# Runtime output
+*.log
+*.out
+*.err
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
