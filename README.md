@@ -170,6 +170,40 @@ Vercel variables belong to each Vercel project. Backend secrets stay only in the
 - Vercel duration and bundle limits apply to OR-Tools. Check build/function logs after the first deployment.
 - See `docs/schema_assessment.md` for the table map and ownership rules.
 
+## Design and implementation questions
+
+### 1 How did you model employees brands processes pods and their relationships
+
+Employees, brands, processes, shifts, and pods are separate Supabase tables. Bridge tables connect brands to processes and employees to dated eligibility, pod membership, and dedicated brand-process-shift ownership.
+
+### 2 How does the system generate and validate a roster
+
+The backend converts active staffing, eligibility, calendar, leave, and shift records into an OR-Tools constraint model. A roster is saved only after demand coverage and employee-date overlap checks pass.
+
+### 3 How are single-resource and multi-employee brands handled
+
+Each brand-process-shift lane carries its own required employee count. A dedicated owner protects single-resource work, while multi-employee lanes are filled up to the staffing requirement from eligible employees.
+
+### 4 What happens when an employee who manages all brand processes is unavailable
+
+The manager first runs the replacement simulator for the affected date and tasks. Approval creates targeted coverage for an eligible available employee without moving unrelated assignments.
+
+### 5 How are conflicting requirements or insufficient staffing handled
+
+Hard conflicts make the roster infeasible instead of silently producing an invalid schedule. The API returns the affected date, brand, process, shift, and staffing gap so the manager can correct eligibility or demand.
+
+### 6 What is automated and what remains under human control
+
+Roster solving, constraint validation, conflict checks, and replacement suggestions are automated. Leave approval, rejection, cancellation, and final regeneration remain with the manager because they are operational decisions.
+
+### 7 What would change if the company doubled in size
+
+The normalized schema and solver can support more records, but I would move generation to a background job and cache dashboard reads. I would also add database-side pagination and performance monitoring for larger rosters.
+
+### 8 What would be improved with one additional week
+
+I would first add browser-level end-to-end tests for manager approval, regeneration, and employee update visibility. After that, I would add an audit timeline and clearer production monitoring for failed roster runs.
+
 ## Security checklist
 
 - `.env`, `.vercel`, build output, dependencies, logs, and caches are ignored by Git.
